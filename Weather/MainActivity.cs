@@ -32,6 +32,7 @@ namespace Weather
 		TextView total;
 		TextView open;
 		TextView dist;
+		bool town;
 
 		protected override void OnCreate (Bundle bundle)
 		{
@@ -53,6 +54,7 @@ namespace Weather
 			distance = FindViewById<SeekBar>(Resource.Id.distance);
 			dist = FindViewById<TextView>(Resource.Id.dist);
 			dist.Text = "5 miles";
+			getSpot.Enabled = false; 
 
 			distance.ProgressChanged += (object sender, SeekBar.ProgressChangedEventArgs e) => {
 				if (e.FromUser)
@@ -65,59 +67,8 @@ namespace Weather
 			getSpot.Click += delegate {
 				int ct = 0;
 				Dictionary<string, char> senIn = new Dictionary<string, char>();
-				SensorData(ct, senIn);
+				SensorData(ct, senIn, town);
 			};
-
-			var request = HttpWebRequest.Create (string.Format (@"http://api.landscape-computing.com/nboxws/rest/v1/zone/lg_1/?key=" + api_KEY));
-			request.ContentType = "application/json";
-			request.Method = "GET";
-
-			/*using (HttpWebResponse response = request.GetResponse () as HttpWebResponse) {
-				if (response.StatusCode != HttpStatusCode.OK)
-					Log.Debug (tag, "Error fetching data. Server returned status code: {0}", response.StatusCode);
-				using (StreamReader reader = new StreamReader (response.GetResponseStream ())) {
-					var content = reader.ReadToEnd ();
-					if (string.IsNullOrWhiteSpace (content)) {
-						Log.Debug (tag, "Response contained empty body...");
-					} else {
-						Log.Debug (tag, "Response Body: \r\n {0}", content);
-					}
-				}
-			}*/
-		}
-
-		protected void SensorData (int count, Dictionary<string, char> sensorInfo)
-		{
-			var request1 = HttpWebRequest.Create (string.Format (@"http://api.landscape-computing.com/nboxws/rest/v1/site/lg/query/summary/?key=" + api_KEY));
-			request1.ContentType = "application/json";
-			request1.Method = "GET";
-
-			using (HttpWebResponse response1 = request1.GetResponse () as HttpWebResponse) {
-				if (response1.StatusCode != HttpStatusCode.OK)
-					Log.Debug (tag, "Error fetching data. Server returned status code: {0}", response1.StatusCode);
-				using (StreamReader reader = new StreamReader (response1.GetResponseStream ())) {
-					var content = reader.ReadToEnd ();
-					if (string.IsNullOrWhiteSpace (content)) {
-						Log.Debug (tag, "Response contained empty body...");
-					} else {
-						var occ = content.Split('|');
-						for (int i = 0; i < occ.Length; i++) {
-							var sensorId = occ[i].Split(':')[0];
-							if (!string.IsNullOrWhiteSpace(sensorId)) {
-								var occupied = occ[i].Split(':')[1][1];
-								if (occupied == '1')
-									count++;
-								sensorInfo.Add(sensorId, occupied);
-							} else	{
-								continue;
-							}
-						}
-					}
-				}
-			}
-			getSpot.Text = "Refresh";
-			total.Text = sensorInfo.Count().ToString();
-			open.Text = count.ToString();
 		}
 
 		protected override void OnStart ()
@@ -146,7 +97,14 @@ namespace Weather
 					getLoc.Text = "Getting location...";
 					locMgr.RequestLocationUpdates (LocationManager.NetworkProvider, 2000, 1, this);
 				} else {
-					Toast.MakeText (this, "Please enable location services.", ToastLength.Long).Show ();
+					//set alert for executing the task
+					AlertDialog.Builder alert = new AlertDialog.Builder (this);
+					alert.SetTitle ("Please enable location services");
+					alert.SetNeutralButton ("OK", (senderAlert, args) => {} );
+					//run the alert in UI thread to display in the screen
+					RunOnUiThread (() => {
+						alert.Show();
+					});
 				}
 			};
 		}
@@ -183,26 +141,74 @@ namespace Weather
 
 				//determine whether closer to los gatos or palo alto
 				if (loc.Text.Contains("Palo Alto")) {
-					Log.Debug (tag, "You are in Palo Alto");
+					town = true;
+					getSpot.Enabled = true;
 				} else if (loc.Text.Contains("Los Gatos")) {
-					Log.Debug (tag, "You are in Los Gatos");
+					town = false;
+					getSpot.Enabled = true;
 				} else {
-					Log.Debug (tag, "You are too far away");
+					//set alert for executing the task
+					AlertDialog.Builder alert = new AlertDialog.Builder (this);
+					alert.SetTitle ("Sorry, you are too far from Palo Alto or Los Gatos");
+					alert.SetNeutralButton ("OK", (senderAlert, args) => {} );
+					//run the alert in UI thread to display in the screen
+					RunOnUiThread (() => {
+						alert.Show();
+					});
 				}
 			}
 		}
+
 		public void OnProviderDisabled (string provider)
 		{
 			Log.Debug (tag, provider + " disabled by user");
 		}
+
 		public void OnProviderEnabled (string provider)
 		{
 			Log.Debug (tag, provider + " enabled by user");
 		}
+
 		public void OnStatusChanged (string provider, Availability status, Bundle extras)
 		{
 			Log.Debug (tag, provider + " availability has changed to " + status.ToString());
 		}
+
+		protected void SensorData (int count, Dictionary<string, char> sensorInfo, bool city)
+		{
+			string place = (city) ? "pa" : "lg";
+			var request1 = HttpWebRequest.Create (string.Format (@"http://api.landscape-computing.com/nboxws/rest/v1/site/" + place + "/query/summary/?key=" + api_KEY));
+			request1.ContentType = "application/json";
+			request1.Method = "GET";
+
+			using (HttpWebResponse response1 = request1.GetResponse () as HttpWebResponse) {
+				if (response1.StatusCode != HttpStatusCode.OK)
+					Log.Debug (tag, "Error fetching data. Server returned status code: {0}", response1.StatusCode);
+				using (StreamReader reader = new StreamReader (response1.GetResponseStream ())) {
+					var content = reader.ReadToEnd ();
+					if (string.IsNullOrWhiteSpace (content)) {
+						Log.Debug (tag, "Response contained empty body...");
+					} else {
+						var occ = content.Split('|');
+						for (int i = 0; i < occ.Length; i++) {
+							var sensorId = occ[i].Split(':')[0];
+							if (!string.IsNullOrWhiteSpace(sensorId)) {
+								var occupied = occ[i].Split(':')[1][1];
+								if (occupied == '0')
+									count++;
+								sensorInfo.Add(sensorId, occupied);
+							} else	{
+								continue;
+							}
+						}
+					}
+				}
+			}
+			getSpot.Text = "Refresh";
+			total.Text = sensorInfo.Count().ToString();
+			open.Text = count.ToString();
+		}
+
 	}	
 }
 

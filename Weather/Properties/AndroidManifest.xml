@@ -3,4 +3,6 @@
 	<uses-sdk android:minSdkVersion="16" android:targetSdkVersion="19" />
 	<application android:theme="@android:style/Theme.Holo" android:label="Parking Locator" android:icon="@drawable/ic_launcher"></application>
 	<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+	<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+	<uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION" />
 </manifest>
