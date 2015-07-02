@@ -180,7 +180,15 @@ namespace Weather
 				}
 				loc.Text = strReturnedAddress.ToString ();
 				getLoc.Text = "My Location";
+
 				//determine whether closer to los gatos or palo alto
+				if (loc.Text.Contains("Palo Alto")) {
+					Log.Debug (tag, "You are in Palo Alto");
+				} else if (loc.Text.Contains("Los Gatos")) {
+					Log.Debug (tag, "You are in Los Gatos");
+				} else {
+					Log.Debug (tag, "You are too far away");
+				}
 			}
 		}
 		public void OnProviderDisabled (string provider)
