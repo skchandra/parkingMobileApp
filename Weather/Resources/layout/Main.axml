@@ -56,7 +56,7 @@
         android:layout_height="wrap_content"
         android:id="@+id/openSection">
         <TextView
-            android:text="Find Spots Within: "
+            android:text="Search Radius: "
             android:textAppearance="?android:attr/textAppearanceMedium"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

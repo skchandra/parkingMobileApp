@@ -8,6 +8,8 @@ using System.Xml.Linq;
 using System.Text;
 using System.Collections.Generic;
 
+using Xamarin.Forms.Labs.Services.Geolocation;
+
 using Android.App;
 using Android.Content;
 using Android.Runtime;
@@ -33,6 +35,8 @@ namespace Weather
 		TextView open;
 		TextView dist;
 		bool town;
+		Position pos1 = new Xamarin.Forms.Labs.Services.Geolocation.Position();
+		double radius = 0.5;
 
 		protected override void OnCreate (Bundle bundle)
 		{
@@ -53,21 +57,23 @@ namespace Weather
 			total = FindViewById<TextView> (Resource.Id.total);
 			distance = FindViewById<SeekBar>(Resource.Id.distance);
 			dist = FindViewById<TextView>(Resource.Id.dist);
-			dist.Text = "5 miles";
+			dist.Text = "0.5 miles";
 			getSpot.Enabled = false; 
 
 			distance.ProgressChanged += (object sender, SeekBar.ProgressChangedEventArgs e) => {
 				if (e.FromUser)
 				{
-					string prog = string.Format("{0}", e.Progress);
+					radius = Convert.ToDouble(e.Progress) / 10.0;
+					string prog = string.Format("{0}", radius);
 					dist.Text = (prog == "1") ? prog + " mile" : prog + " miles";
 				}	
 			};
 
 			getSpot.Click += delegate {
 				int ct = 0;
-				Dictionary<string, char> senIn = new Dictionary<string, char>();
-				SensorData(ct, senIn, town);
+				Dictionary<string, string> senIn = new Dictionary<string, string>();
+				Dictionary<string, string> senCoord = new Dictionary<string, string>();
+				SensorData(radius, pos1, ct, senIn, senCoord, town);
 			};
 		}
 
@@ -138,13 +144,19 @@ namespace Weather
 				}
 				loc.Text = strReturnedAddress.ToString ();
 				getLoc.Text = "My Location";
+				pos1 = new Xamarin.Forms.Labs.Services.Geolocation.Position()
+				{
+					Latitude = location.Latitude,
+					Longitude = location.Longitude
+				};
+
 
 				//determine whether closer to los gatos or palo alto
 				if (loc.Text.Contains("Palo Alto")) {
-					town = true;
+					town = false;
 					getSpot.Enabled = true;
 				} else if (loc.Text.Contains("Los Gatos")) {
-					town = false;
+					town = true;
 					getSpot.Enabled = true;
 				} else {
 					//set alert for executing the task
@@ -174,9 +186,10 @@ namespace Weather
 			Log.Debug (tag, provider + " availability has changed to " + status.ToString());
 		}
 
-		protected void SensorData (int count, Dictionary<string, char> sensorInfo, bool city)
+		protected void SensorData (double rad, Position pos, int count, Dictionary<string, string> sensorInfo, Dictionary<string, string> sensorCoord, bool city)
 		{
-			string place = (city) ? "pa" : "lg";
+			string place = (!city) ? "pa" : "lg";
+			string zone = "1";
 			var request1 = HttpWebRequest.Create (string.Format (@"http://api.landscape-computing.com/nboxws/rest/v1/site/" + place + "/query/summary/?key=" + api_KEY));
 			request1.ContentType = "application/json";
 			request1.Method = "GET";
@@ -184,18 +197,19 @@ namespace Weather
 			using (HttpWebResponse response1 = request1.GetResponse () as HttpWebResponse) {
 				if (response1.StatusCode != HttpStatusCode.OK)
 					Log.Debug (tag, "Error fetching data. Server returned status code: {0}", response1.StatusCode);
-				using (StreamReader reader = new StreamReader (response1.GetResponseStream ())) {
-					var content = reader.ReadToEnd ();
-					if (string.IsNullOrWhiteSpace (content)) {
+				using (StreamReader reader1 = new StreamReader (response1.GetResponseStream ())) {
+					var content1 = reader1.ReadToEnd ();
+					if (string.IsNullOrWhiteSpace (content1)) {
 						Log.Debug (tag, "Response contained empty body...");
 					} else {
-						var occ = content.Split('|');
+						var occ = content1.Split('|');
 						for (int i = 0; i < occ.Length; i++) {
 							var sensorId = occ[i].Split(':')[0];
 							if (!string.IsNullOrWhiteSpace(sensorId)) {
-								var occupied = occ[i].Split(':')[1][1];
-								if (occupied == '0')
+								var occupied = Char.ToString(occ[i].Split(':')[1][1]);
+								if (occupied == "0") {
 									count++;
+								}
 								sensorInfo.Add(sensorId, occupied);
 							} else	{
 								continue;
@@ -204,11 +218,75 @@ namespace Weather
 					}
 				}
 			}
+			var request = HttpWebRequest.Create (string.Format (@"http://api.landscape-computing.com/nboxws/rest/v1/zone/" + place + "_" + zone + "/?key=" + api_KEY));
+			request.ContentType = "application/json";
+			request.Method = "GET";
+
+			using (HttpWebResponse response = request.GetResponse () as HttpWebResponse) {
+				if (response.StatusCode != HttpStatusCode.OK)
+					Log.Debug (tag, "Error getting data. Server returned status code: {0}", response.StatusCode);
+				using (StreamReader reader = new StreamReader (response.GetResponseStream ())) {
+					string content = reader.ReadToEnd ();
+					if (string.IsNullOrWhiteSpace (content)) {
+						Log.Debug (tag, "Response contained empty body...");
+					} else {
+						var test = content.Split(new string[] { "sensorId" }, StringSplitOptions.None);
+						for (int i = 1; i < test.Length - 1; i++) {
+							string temp = test[i];
+							if (temp.Contains("guid")) {
+								int sFrom = temp.IndexOf("<guid>") + "<guid>".Length;
+								int sTo = temp.LastIndexOf("</guid>");
+								string senseId = temp.Substring(sFrom, sTo - sFrom);
+								int gFrom = temp.IndexOf("<gpsCoord>") + "<gpsCoord>".Length;
+								int gTo = temp.IndexOf("</gpsCoord>");
+								string coordinates = temp.Substring (gFrom, gTo - gFrom);
+								sensorCoord.Add (senseId, coordinates);
+							}
+						}
+					}
+				}
+			}
+
+			Dictionary<string, List<double>> dict = new Dictionary<string, List<double>>();
+			foreach (var sensor in sensorCoord) {
+				if (sensorInfo.ContainsKey (sensor.Key)) {
+					List<double> vals = new List<double>();
+					double occ = Double.Parse(sensorInfo [sensor.Key]);
+					if (occ == 0) {
+						string latSt = sensor.Value.Split (',') [0];
+						string lngSt = sensor.Value.Split (',') [1];
+						double lat = 0;
+						double lng = 0;
+						Double.TryParse (latSt, out lat);
+						Double.TryParse (lngSt, out lng);
+						float[] distance = new float[1];
+						Location.DistanceBetween(pos.Latitude, pos.Longitude, lat, lng, distance);
+						double dist = System.Convert.ToDouble(distance[0]) / 1609.344;
+						if (dist <= rad) {
+							Log.Debug (tag, "{0}", dist);
+							vals.Add (occ);
+							vals.Add (lat);
+							vals.Add (lng);
+							dict.Add (sensor.Key, vals);
+						} else
+							Log.Debug (tag, "Not {0}", dist);
+					} else
+						continue;
+				} else
+					Log.Debug (tag, "what");
+			}
+
+			foreach (var sensor in dict) {
+				Log.Debug (tag, "{0}, {1}", sensor.Key, sensor.Value [0]);
+				/*foreach (var value in sensor.Value) {
+					Log.Debug (tag, "{0}: {1}", sensor.Key, value);
+				}*/
+			}
+
 			getSpot.Text = "Refresh";
 			total.Text = sensorInfo.Count().ToString();
-			open.Text = count.ToString();
+			open.Text = dict.Count.ToString();
 		}
-
 	}	
 }
 
